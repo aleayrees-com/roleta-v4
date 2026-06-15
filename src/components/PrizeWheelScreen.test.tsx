@@ -5,9 +5,37 @@ import { PrizeWheelScreen } from './PrizeWheelScreen.js';
 
 const storageKey = 'v4-prize-wheel-test';
 
+function mockAudio(
+  playMock = vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+) {
+  const instances: MockAudio[] = [];
+
+  class MockAudio {
+    currentTime = 0;
+    pause = vi.fn();
+    play = playMock;
+    preload = '';
+    readonly src: string;
+    volume = 1;
+
+    constructor(src = '') {
+      this.src = src;
+      instances.push(this);
+    }
+  }
+
+  vi.stubGlobal('Audio', MockAudio);
+
+  return {
+    instances,
+    playMock,
+  };
+}
+
 describe('PrizeWheelScreen', () => {
   afterEach(() => {
     vi.useRealTimers();
+    vi.unstubAllGlobals();
     window.localStorage.clear();
   });
 
@@ -60,6 +88,7 @@ describe('PrizeWheelScreen', () => {
 
   test('spins once, blocks duplicate clicks, and announces the prize', async () => {
     vi.useFakeTimers();
+    mockAudio();
     window.localStorage.setItem(
       storageKey,
       JSON.stringify(['Pix surpresa', 'Jantar', 'Mentoria']),
@@ -87,5 +116,35 @@ describe('PrizeWheelScreen', () => {
     expect(screen.getByRole('status')).toHaveTextContent(
       'Premio sorteado: Jantar',
     );
+  });
+
+  test('shows Denner and plays an audio effect when the prize is revealed', async () => {
+    vi.useFakeTimers();
+    const { instances, playMock } = mockAudio();
+    window.localStorage.setItem(storageKey, JSON.stringify(['Pix', 'Jantar']));
+
+    render(
+      <PrizeWheelScreen
+        rng={() => 0.72}
+        spinDurationMs={300}
+        storageKey={storageKey}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Girar roleta' }));
+
+    await act(async () => {
+      vi.advanceTimersByTime(300);
+    });
+
+    expect(
+      screen.getByLabelText('Denner comemorando premio'),
+    ).toBeInTheDocument();
+    expect(screen.getByAltText('Denner')).toHaveAttribute(
+      'src',
+      '/easter-eggs/denner-toasty-tv-safe-20260611.png',
+    );
+    expect(instances[0]?.src).toMatch(/^\/easter-eggs\/.+\.mp3$/);
+    expect(playMock).toHaveBeenCalledTimes(1);
   });
 });

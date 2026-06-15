@@ -1,4 +1,4 @@
-import { RotateCcw, Trash2 } from 'lucide-react';
+import { RotateCcw, Trash2, Volume2 } from 'lucide-react';
 import {
   useCallback,
   useEffect,
@@ -52,15 +52,48 @@ const WHEEL_COLORS = [
   '#f2f2f2',
   '#2b2b2b',
 ] as const;
+const DENNER_IMAGE_SRC = '/easter-eggs/denner-toasty-tv-safe-20260611.png';
+const DENNER_VISIBLE_MS = 5200;
+const DENNER_EFFECTS = [
+  {
+    audioSrc: '/easter-eggs/denner-toasty-v2.mp3',
+    id: 'toasty',
+    label: 'TOASTY!',
+  },
+  {
+    audioSrc: '/easter-eggs/rapaz-xaropinho.mp3',
+    id: 'rapaz',
+    label: 'RAPAZ!',
+  },
+  {
+    audioSrc: '/easter-eggs/rodrigo-faro-uuii.mp3',
+    id: 'uuii',
+    label: 'UUII!',
+  },
+  {
+    audioSrc: '/easter-eggs/rodrigo-faro-ele-gosta.mp3',
+    id: 'ele-gosta',
+    label: 'ELE GOSTA!',
+  },
+] as const;
+
+type DennerEffect = (typeof DENNER_EFFECTS)[number];
+type DennerEffectId = DennerEffect['id'];
 
 export function PrizeWheelScreen({
   rng,
   spinDurationMs = DEFAULT_SPIN_DURATION_MS,
   storageKey = DEFAULT_STORAGE_KEY,
 }: PrizeWheelScreenProps) {
+  const dennerTimeoutRef = useRef<number | undefined>(undefined);
+  const effectAudioRefs = useRef<
+    Partial<Record<DennerEffectId, HTMLAudioElement>>
+  >({});
   const timeoutRef = useRef<number | undefined>(undefined);
   const [draft, setDraft] = useState(() => loadInitialDraft(storageKey));
+  const [dennerEffect, setDennerEffect] = useState<DennerEffect | null>(null);
   const [isSpinning, setIsSpinning] = useState(false);
+  const [needsSoundGesture, setNeedsSoundGesture] = useState(false);
   const [resultLabel, setResultLabel] = useState<string | null>(null);
   const [rotation, setRotation] = useState(0);
   const prizes = useMemo(() => normalizePrizeEntries(draft), [draft]);
@@ -75,14 +108,100 @@ export function PrizeWheelScreen({
       if (timeoutRef.current !== undefined) {
         window.clearTimeout(timeoutRef.current);
       }
+
+      if (dennerTimeoutRef.current !== undefined) {
+        window.clearTimeout(dennerTimeoutRef.current);
+      }
+
+      Object.values(effectAudioRefs.current).forEach((audio) => audio?.pause());
     },
     [],
   );
+
+  const getEffectAudio = useCallback((effect: DennerEffect) => {
+    const existingAudio = effectAudioRefs.current[effect.id];
+
+    if (existingAudio) {
+      return existingAudio;
+    }
+
+    const audio = new Audio(effect.audioSrc);
+    audio.preload = 'auto';
+    audio.volume = 0.86;
+    effectAudioRefs.current[effect.id] = audio;
+
+    return audio;
+  }, []);
+
+  const stopEffectSound = useCallback((effectId: DennerEffectId) => {
+    const audio = effectAudioRefs.current[effectId];
+
+    if (!audio) {
+      return;
+    }
+
+    audio.pause();
+    audio.currentTime = 0;
+  }, []);
+
+  const playEffectSound = useCallback(
+    (effect: DennerEffect) => {
+      const audio = getEffectAudio(effect);
+      audio.currentTime = 0;
+
+      try {
+        const playResult = audio.play();
+        void Promise.resolve(playResult)
+          .then(() => {
+            setNeedsSoundGesture(false);
+          })
+          .catch(() => {
+            setNeedsSoundGesture(true);
+          });
+      } catch {
+        setNeedsSoundGesture(true);
+      }
+    },
+    [getEffectAudio],
+  );
+
+  const triggerDennerEffect = useCallback(() => {
+    if (dennerTimeoutRef.current !== undefined) {
+      window.clearTimeout(dennerTimeoutRef.current);
+    }
+
+    const effect = chooseDennerEffect();
+    setDennerEffect(effect);
+    playEffectSound(effect);
+
+    dennerTimeoutRef.current = window.setTimeout(() => {
+      setDennerEffect(null);
+      stopEffectSound(effect.id);
+      dennerTimeoutRef.current = undefined;
+    }, DENNER_VISIBLE_MS);
+  }, [playEffectSound, stopEffectSound]);
+
+  const handleEnableSound = useCallback(() => {
+    if (dennerTimeoutRef.current !== undefined) {
+      window.clearTimeout(dennerTimeoutRef.current);
+    }
+
+    const effect = dennerEffect ?? DENNER_EFFECTS[0];
+    setDennerEffect(effect);
+    playEffectSound(effect);
+
+    dennerTimeoutRef.current = window.setTimeout(() => {
+      setDennerEffect(null);
+      stopEffectSound(effect.id);
+      dennerTimeoutRef.current = undefined;
+    }, DENNER_VISIBLE_MS);
+  }, [dennerEffect, playEffectSound, stopEffectSound]);
 
   const handlePrizeChange = useCallback(
     (event: ChangeEvent<HTMLTextAreaElement>) => {
       setDraft(event.target.value);
       setResultLabel(null);
+      setDennerEffect(null);
     },
     [],
   );
@@ -90,11 +209,13 @@ export function PrizeWheelScreen({
   const handleClear = useCallback(() => {
     setDraft('');
     setResultLabel(null);
+    setDennerEffect(null);
   }, []);
 
   const handleRestoreDefaults = useCallback(() => {
     setDraft(DEFAULT_PRIZES.join('\n'));
     setResultLabel(null);
+    setDennerEffect(null);
   }, []);
 
   const handleSpin = useCallback(() => {
@@ -116,8 +237,9 @@ export function PrizeWheelScreen({
       setResultLabel(spin.segment.label);
       setIsSpinning(false);
       timeoutRef.current = undefined;
+      triggerDennerEffect();
     }, spinDurationMs);
-  }, [isSpinning, prizes, rng, rotation, spinDurationMs]);
+  }, [isSpinning, prizes, rng, rotation, spinDurationMs, triggerDennerEffect]);
 
   const wheelStyle = {
     '--wheel-center-rotation': `${-rotation}deg`,
@@ -205,7 +327,44 @@ export function PrizeWheelScreen({
           />
         </aside>
       </section>
+
+      <img
+        alt=""
+        aria-hidden="true"
+        className="denner-image-preload"
+        src={DENNER_IMAGE_SRC}
+      />
+      {dennerEffect ? <DennerPrizeEffect effect={dennerEffect} /> : null}
+      {needsSoundGesture ? (
+        <button
+          className="denner-sound-enable"
+          onClick={handleEnableSound}
+          type="button"
+        >
+          <Volume2 aria-hidden="true" size={16} />
+          <span>Ativar som</span>
+        </button>
+      ) : null}
     </main>
+  );
+}
+
+function DennerPrizeEffect({ effect }: { readonly effect: DennerEffect }) {
+  return (
+    <aside
+      className="denner-prize-effect"
+      aria-label="Denner comemorando premio"
+    >
+      <img
+        alt="Denner"
+        decoding="sync"
+        height="693"
+        loading="eager"
+        src={DENNER_IMAGE_SRC}
+        width="520"
+      />
+      <strong>{effect.label}</strong>
+    </aside>
   );
 }
 
@@ -274,4 +433,13 @@ function getLabelColor(index: number): string {
 
 function formatAngle(angle: number): string {
   return Number.isInteger(angle) ? String(angle) : angle.toFixed(4);
+}
+
+function chooseDennerEffect(): DennerEffect {
+  const selectedIndex = Math.min(
+    DENNER_EFFECTS.length - 1,
+    Math.floor(Math.random() * DENNER_EFFECTS.length),
+  );
+
+  return DENNER_EFFECTS[selectedIndex];
 }

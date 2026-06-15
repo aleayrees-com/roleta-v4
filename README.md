@@ -8,6 +8,7 @@ Roleta de premios da V4 Alfradique em React + Vite.
 - Fatias ajustadas automaticamente pela quantidade de premios.
 - Logo V4 no centro da roleta.
 - Premio sorteado anunciado na tela.
+- Imagem e sons do Denner quando o premio aparece.
 - Persistencia local dos premios no navegador.
 - Fundo escuro com grade vermelha no estilo V4.
 
